@@ -23,10 +23,11 @@ def extract_tar(tar_path: Path) -> Path:
     return out_dir
 
 # 3) Convert extracted files to PLY (Open3D for xyz/pcd/ply; PDAL for las/laz/e57)
-def convert_dir_to_ply(root: Path, voxel_size=0.03):
+def convert_dir_to_ply(root: Path, voxel_size=0.03):    #TODO: inscpect why conversion from .npy to .ply doesnt work 
     o3d_exts = {".ply", ".pcd", ".xyz", ".xyzn", ".xyzrgb", ".pts"}
     lidar_exts = {".las", ".laz", ".e57"}
 
+    file_paths = []
     for f in root.rglob("*"):
         if not f.is_file():
             continue
@@ -55,13 +56,18 @@ def convert_dir_to_ply(root: Path, voxel_size=0.03):
         else:
             # Unknown file type inside the tar — just report it
             print("Unknown type, skipping:", f)
+        
+        file_paths.append(f)
+    return file_paths
 
 def execution():
     for file in Path(r"D:\Pointcloud data\zst data").glob("*.zst"):
         zst_file = Path(file)
         tar_file = decompress_zst_to_tar(zst_file)
         extracted_dir = extract_tar(tar_file)
-        convert_dir_to_ply(extracted_dir, voxel_size=0.03)
+        file_paths = convert_dir_to_ply(extracted_dir, voxel_size=0.03)
+
+        return file_paths
 
 def npy_to_ply(npy_path: Path, out_path: Path, voxel_size=0.03):
     arr = np.load(npy_path, allow_pickle=True)
