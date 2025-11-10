@@ -1,16 +1,16 @@
-import tools.visualization as v
-import tools.preprocessing as p
+import visualization as v
+import preprocessing as p
 from pathlib import Path
 
 #1st execution: .zst -> .npy or other type of file
 file_path_npys = p.execution()
 file_npy_example = fr"{file_path_npys[0]}"
-file_ply_example = file_npy_example.replace(".npy", ".ply")
+file_ply_example = file_npy_example.replace(".npy", ".ply") #output file of 2nd function
 
 #2nd execution: .npy to .ply
 p.npy_to_ply(Path(file_npy_example), Path(file_ply_example))
 
-#3rd execution: postprocess the .ply visualize it
+#3rd execution: postprocess the .ply, then visualize it
 clean = v.visualization(
     file_ply_example,
     voxel_size=0.03,

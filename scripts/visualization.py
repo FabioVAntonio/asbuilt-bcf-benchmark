@@ -83,3 +83,19 @@ def visualization(filepath, *,
     vis.destroy_window()
 
     return pcd_ds
+
+if __name__ == "__main__":
+    file_name = input("Enter filename (.ply): ")
+    file_path = f"D:\Pointcloud data\processed data\{file_name}.ply"
+
+    clean = visualization(
+    file_path,
+    voxel_size=0.03,
+    nb_neighbors=24,
+    std_ratio=2.0,
+    use_radius_outlier=True,
+    radius_multiplier=3.0,
+    min_neighbors=8,
+    orient_k=50,
+    save_path=file_path
+)
