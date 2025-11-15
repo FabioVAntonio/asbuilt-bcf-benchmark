@@ -1,4 +1,4 @@
-import visualization as v
+import scripts.view_tile as v
 import preprocessing as p
 from pathlib import Path
 

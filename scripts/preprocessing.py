@@ -175,18 +175,22 @@ def convert_dir_to_ply(root: Path, processed_dir: Path, voxel_size=0.03):
     return file_paths
 
 def execution():
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    operation_input = input("Y/N? Enter here: ")
+    if operation_input.lower()  == "y":
+        PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-    all_paths = []
-    base = Path(r"D:\Pointcloud data\zst data")
-    for zst in base.glob("*.zst"):
-        zst_file = Path(zst)
-        tar_file = decompress_zst_to_tar(zst_file)
-        extracted_dir = extract_tar(tar_file)
-        file_paths = convert_dir_to_ply(extracted_dir, PROCESSED_DIR, voxel_size=0.03)
-        all_paths.extend(file_paths)
+        all_paths = []
+        base = Path(r"D:\Pointcloud data\zst data")
+        for zst in base.glob("*.zst"):
+            zst_file = Path(zst)
+            tar_file = decompress_zst_to_tar(zst_file)
+            extracted_dir = extract_tar(tar_file)
+            file_paths = convert_dir_to_ply(extracted_dir, PROCESSED_DIR, voxel_size=0.03)
+            all_paths.extend(file_paths)
 
-    return all_paths
+        return all_paths
+    else:
+        pass
 
 if __name__ == "__main__":
     execution()

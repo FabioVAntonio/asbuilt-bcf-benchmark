@@ -1,3 +1,5 @@
 #ignore PLNs and IFCs because of file sizes
 PLNs and IFCs/
 scripts/test.py
+scripts/__pycache__/
+*.py[cod]
