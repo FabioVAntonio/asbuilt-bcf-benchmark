@@ -7,6 +7,4 @@ loaded_data = ["site_00.coord.part000.tar.zst",
                "site_00.coord.part001.tar.zst", 
                "site_00.coord.part002.tar.zst",
                "site_00.coord.part003.tar.zst",
-               "site_01.coord.part000.tar.zst",
-               "site_01.coord.part001.tar.zst"
                ]
