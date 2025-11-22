@@ -9,23 +9,25 @@ import sys
 import hashlib
 
 PROCESSED_DIR = Path(r"D:\Pointcloud data\processed data")
+path_zst_files = r"D:\\Pointcloud data\\zst data\\"
+zst_filename= "site_01.coord.part000.tar.zst"
 
-# 1) Decompress .zst -> .tar
-def decompress_zst_to_tar(zst_path: Path) -> Path:
-    tar_path = zst_path.with_suffix("")  # drop .zst (leaves .tar)
+
+def decompress_zst_to_tar(zst_path: Path) -> Path: #CHECKED
+    tar_path = zst_path.with_suffix("")  #drop .zst (leaves .tar)
+
     dctx = zstd.ZstdDecompressor()
-    with open(zst_path, "rb") as f, open(tar_path, "wb") as g, dctx.stream_reader(f) as r:
-        for chunk in iter(lambda: r.read(1024 * 1024), b""):
-            g.write(chunk)
+    with open(zst_path, "rb") as zst, open(tar_path, "wb") as tar, dctx.stream_reader(zst) as decompressed:
+        for chunk in iter(lambda: decompressed.read(1024 * 1024), b""):
+            tar.write(chunk)
     return tar_path
 
-# 2) Extract .tar -> folder
-def extract_tar(tar_path: Path) -> Path:
-    out_dir = tar_path.with_suffix("")  # folder named like the tar (no .tar)
-    out_dir.mkdir(exist_ok=True)
+def extract_tar(tar_path: Path) -> Path: #CHECKED
+    extraction_path = tar_path.with_suffix("")  #folder named like the tar (no .tar)
+    extraction_path.mkdir(exist_ok=True)
     with tarfile.open(tar_path, mode="r:*") as tf:
-        tf.extractall(out_dir)
-    return out_dir
+        tf.extractall(extraction_path)
+    return extraction_path
 
 # ---- Labeling helpers -------------------------------------------------------
 
@@ -191,6 +193,3 @@ def execution():
         return all_paths
     else:
         pass
-
-if __name__ == "__main__":
-    execution()
