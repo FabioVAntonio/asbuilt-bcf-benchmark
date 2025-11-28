@@ -2,21 +2,33 @@ import open3d as o3d
 import numpy as np
 import time
 import copy
+import os
 
-#GENERAL FILEPATH SETTING
+#CONSTANTS
+PLY_DATA_FOLDER = r"D:\\Pointcloud data\\processed data\\"
+#CONSTANTS
+
+#GENERAL FILEPATH FUNCTIONS
 def set_src_trg_paths():
     src_file_name = input("Enter source filename (.ply): ")
-    src_file_path = f"D:\Pointcloud data\processed data\{src_file_name}.ply"
+    src_file_path = PLY_DATA_FOLDER+f"{src_file_name}.ply"
     
     trg_file_name = input("Enter target filename (.ply): ")
-    trg_file_path = f"D:\Pointcloud data\processed data\{trg_file_name}.ply"
+    trg_file_path = PLY_DATA_FOLDER+f"{trg_file_name}.ply"
     return src_file_path, trg_file_path
 
 def set_file_path():
     file_name = input("Enter filename (.ply): ")
-    file_path = f"D:\Pointcloud data\processed data\{file_name}.ply"
+    file_path = PLY_DATA_FOLDER+f"{file_name}.ply"
     return file_path
-#GENERAL FILEPATH SETTING
+
+def get_pcd_paths(folder_path: str) -> list:
+    pcd_file_names = []
+    for file in os.listdir(folder_path):
+        if file.lower().endswith(".ply"):
+            pcd_file_names.append(file)
+    return pcd_file_names
+#GENERAL FILEPATH FUNCTIONS
 
 
 #INITIAL TRANSFORMATION
@@ -26,30 +38,22 @@ init_transformation = np.asarray([[0.862, 0.011, -0.507, 0.5],
 #INITIAL TRANSFORMATION
 
 
-#PREPROCESSING POINT CLOUD OPERATIONS
-def view_tile(voxel_size = 0.05): #voxel_size = 0.05 as a test
-    file_path = set_file_path()
-
-    pcd = initialize_pcd(file_path) #load .ply
-    downpcd = voxel_downsampling(pcd, voxel_size) #voxel downsample .ply
-
-    if len(downpcd.points) == 0:
-        raise ValueError("Loaded point cloud is empty.")
-    else:
-        print(downpcd)
-        print(np.asarray(downpcd.points))
-        o3d.visualization.draw_geometries([downpcd],
-                                        zoom=0.3412,
-                                        front=[0.4257, -0.2125, -0.8795],
-                                        lookat=[2.6172, 2.0475, 1.532],
-                                        up=[-0.0694, -0.9768, 0.2024])
- 
+#PREPROCESSING POINT CLOUD OPERATIONS 
 def initialize_pcd(file_path: str):
     ply_point_cloud = o3d.data.PLYPointCloud()
     pcd = o3d.io.read_point_cloud(file_path)
     return pcd
 
-def voxel_downsampling(pcd, voxel_size):
+def intitialize_pcds(voxel_size):
+    pcds_down = []
+    pcd_file_names = get_pcd_paths(PLY_DATA_FOLDER)
+    for pcd in pcd_file_names:
+        pcd = o3d.io.read_point_cloud(PLY_DATA_FOLDER+pcd)
+        pcd_down = pcd.voxel_down_sample(voxel_size=voxel_size)
+        pcds_down.append(pcd_down)
+    return pcds_down
+
+def voxel_downsample_pcd(pcd, voxel_size):
     pcd_down = pcd.voxel_down_sample(voxel_size)
     return pcd_down
 
@@ -86,8 +90,8 @@ def initialize_dataset(voxel_size):
             )
         )
 
-    source_down = voxel_downsampling(source_pcd, voxel_size)
-    target_down = voxel_downsampling(target_pcd, voxel_size)
+    source_down = voxel_downsample_pcd(source_pcd, voxel_size)
+    target_down = voxel_downsample_pcd(target_pcd, voxel_size)
 
     source_fpfh = geometric_features(source_down, voxel_size)
     target_fpfh = geometric_features(target_down, voxel_size)
@@ -142,7 +146,28 @@ def refine_registration(source_pcd, target_pcd, result_ransac, voxel_size):
 
 #MULTIWAY REGISTRATION
 
-#VIEWING REGISTRATIION
+#VIEWING OPERATIONS
+def view_data(voxel_size, multiway: bool): #voxel_size = 0.05 usually
+    if multiway == False:
+        file_path = set_file_path()
+        pcd = initialize_pcd(file_path) #load .ply
+        downpcds = [voxel_downsample_pcd(pcd, voxel_size)] #voxel downsample .ply
+        print(np.asarray(downpcds[0].points))
+        print(downpcds[0])
+    else:
+        downpcds = intitialize_pcds(voxel_size)
+        print(downpcds)
+        
+    try:
+        o3d.visualization.draw_geometries(downpcds,
+                                        zoom=0.3412,
+                                        front=[0.4257, -0.2125, -0.8795],
+                                        lookat=[2.6172, 2.0475, 1.532],
+                                        up=[-0.0694, -0.9768, 0.2024])
+    except:
+        if multiway and len(downpcds.points) == 0:
+            raise ValueError("Loaded point cloud is empty.")
+
 def draw_reg_result(source, target, transformation):
     source_temp = copy.deepcopy(source)
     target_temp = copy.deepcopy(target)
@@ -189,7 +214,7 @@ def view_refined_global_reg():
     print("Point-to-plane ICP registration refinement took %.3f sec.\n" % (time.time() - start))
     
     draw_reg_result(source_down, target_down, result_icp.transformation)
-#VIEWING REGISTRATIION
+#VIEWING OPERATIONS
     
 
 if __name__ == "__main__":
@@ -197,7 +222,7 @@ if __name__ == "__main__":
     start = time.time()
     #START TIMER
     
-    view_global_reg()
+    view_data(0.05, multiway=True)
 
     #END TIMER
     end = time.time()
