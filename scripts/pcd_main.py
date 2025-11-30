@@ -39,12 +39,12 @@ init_transformation = np.asarray([[0.862, 0.011, -0.507, 0.5],
 
 
 #PREPROCESSING POINT CLOUD OPERATIONS 
-def initialize_pcd(file_path: str):
+def get_pcd(file_path: str):
     ply_point_cloud = o3d.data.PLYPointCloud()
     pcd = o3d.io.read_point_cloud(file_path)
     return pcd
 
-def intitialize_pcds(voxel_size):
+def get_pcds_down(voxel_size):
     pcds_down = []
     pcd_file_names = get_pcd_paths(PLY_DATA_FOLDER)
     for pcd in pcd_file_names:
@@ -76,8 +76,8 @@ def geometric_features(pcd_down, voxel_size):
 
 def initialize_dataset(voxel_size):
     source_pcd_path, target_pcd_path = set_src_trg_paths()
-    source_pcd = initialize_pcd(source_pcd_path)
-    target_pcd = initialize_pcd(target_pcd_path)
+    source_pcd = get_pcd(source_pcd_path)
+    target_pcd = get_pcd(target_pcd_path)
 
     #NORMALS ESTIMATION
     radius_normal = voxel_size * 2.0
@@ -143,21 +143,108 @@ def refine_registration(source_pcd, target_pcd, result_ransac, voxel_size):
 #REGISTRATION POINT CLOUD OPERATIONS
 
 #MULTIWAY REGISTRATION
+def multiway_registration():
+    voxel_size = 0.5
+    max_correspondence_distance_coarse = voxel_size * 15
+    max_correspondence_distance_fine = voxel_size * 1.5
+    pcds_down = get_pcds_down(voxel_size)
 
+    for pcd in pcds_down:
+        pcd.estimate_normals(
+            search_param=o3d.geometry.KDTreeSearchParamHybrid(
+                radius=voxel_size * 2.0,
+                max_nn=30
+            )
+        )
+
+    def pairwise_registration(source, target):
+        print("Apply point-to-plane ICP")
+        icp_coarse = o3d.pipelines.registration.registration_icp(
+            source, target, max_correspondence_distance_coarse, np.identity(4),
+            o3d.pipelines.registration.TransformationEstimationPointToPlane())
+        icp_fine = o3d.pipelines.registration.registration_icp(
+            source, target, max_correspondence_distance_fine,
+            icp_coarse.transformation,
+            o3d.pipelines.registration.TransformationEstimationPointToPlane())
+        transformation_icp = icp_fine.transformation
+        information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
+            source, target, max_correspondence_distance_fine,
+            icp_fine.transformation)
+        return transformation_icp, information_icp
+
+    def full_registration(pcds, max_correspondence_distance_coarse,
+                        max_correspondence_distance_fine):
+        pose_graph = o3d.pipelines.registration.PoseGraph()
+        odometry = np.identity(4)
+        pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
+        n_pcds = len(pcds)
+        for source_id in range(n_pcds):
+            for target_id in range(source_id + 1, n_pcds):
+                transformation_icp, information_icp = pairwise_registration(
+                    pcds[source_id], pcds[target_id])
+                print("Build o3d.pipelines.registration.PoseGraph")
+                if target_id == source_id + 1:  # odometry case
+                    odometry = np.dot(transformation_icp, odometry)
+                    pose_graph.nodes.append(
+                        o3d.pipelines.registration.PoseGraphNode(
+                            np.linalg.inv(odometry)))
+                    pose_graph.edges.append(
+                        o3d.pipelines.registration.PoseGraphEdge(source_id,
+                                                                target_id,
+                                                                transformation_icp,
+                                                                information_icp,
+                                                                uncertain=False))
+                else:  # loop closure case
+                    pose_graph.edges.append(
+                        o3d.pipelines.registration.PoseGraphEdge(source_id,
+                                                                target_id,
+                                                                transformation_icp,
+                                                                information_icp,
+                                                                uncertain=True))
+        return pose_graph
+    
+    with o3d.utility.VerbosityContextManager(
+        o3d.utility.VerbosityLevel.Debug) as cm:
+        pose_graph = full_registration(pcds_down,
+                                    max_correspondence_distance_coarse,
+                                    max_correspondence_distance_fine)
+    
+    option = o3d.pipelines.registration.GlobalOptimizationOption(
+    max_correspondence_distance=max_correspondence_distance_fine,
+    edge_prune_threshold=0.25,
+    reference_node=0)
+    with o3d.utility.VerbosityContextManager(
+        o3d.utility.VerbosityLevel.Debug) as cm:
+        o3d.pipelines.registration.global_optimization(
+            pose_graph,
+            o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
+            o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
+            option)
+
+    for point_id in range(len(pcds_down)):
+        print(pose_graph.nodes[point_id].pose)
+        pcds_down[point_id].transform(pose_graph.nodes[point_id].pose)
+    
+    return pcds_down
 #MULTIWAY REGISTRATION
 
+#SAVE PLY
+
+#SAVE PLY
+
 #VIEWING OPERATIONS
-def view_data(voxel_size, multiway: bool): #voxel_size = 0.05 usually
-    if multiway == False:
+def view_data(voxel_size, pcds_down, multiway: bool): #voxel_size = 0.05 usually
+    if multiway == False and pcds_down == []:
         file_path = set_file_path()
-        pcd = initialize_pcd(file_path) #load .ply
+        pcd = get_pcd(file_path) #load .ply
         downpcds = [voxel_downsample_pcd(pcd, voxel_size)] #voxel downsample .ply
         print(np.asarray(downpcds[0].points))
         print(downpcds[0])
-    else:
-        downpcds = intitialize_pcds(voxel_size)
+    elif multiway and pcds_down == []:
+        downpcds = get_pcds_down(voxel_size)
         print(downpcds)
-        
+    else:
+        downpcds = pcds_down
     try:
         o3d.visualization.draw_geometries(downpcds,
                                         zoom=0.3412,
@@ -222,7 +309,10 @@ if __name__ == "__main__":
     start = time.time()
     #START TIMER
     
-    view_data(0.05, multiway=True)
+    pcds_down = get_pcds_down(voxel_size=0.05)
+    view_data(0.05, pcds_down, multiway=False)
+
+    #view_refined_global_reg()
 
     #END TIMER
     end = time.time()
