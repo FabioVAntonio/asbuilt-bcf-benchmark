@@ -6,7 +6,6 @@ import os
 
 #CONSTANTS
 PLY_DATA_FOLDER = r"D:\\Pointcloud data\\processed data\\"
-VOXEL_SIZE = 0.05
 #CONSTANTS
 
 #GENERAL FILEPATH FUNCTIONS
@@ -68,7 +67,7 @@ def get_fpfh_features(pcd, voxel_size:float):
     
     return pcd_fpfh
 
-def initialize_dataset(voxel_size: float):
+def initialize_pcd_dataset(voxel_size: float):
     source_pcd_path, target_pcd_path = set_src_trg_paths()
     source_pcd = get_pcd(source_pcd_path)
     target_pcd = get_pcd(target_pcd_path)
@@ -79,22 +78,25 @@ def initialize_dataset(voxel_size: float):
 
     source_down = get_pcd_down(source_pcd, voxel_size)
     target_down = get_pcd_down(target_pcd, voxel_size)
-
-    source_fpfh = get_fpfh_features(source_down, voxel_size)
-    target_fpfh = get_fpfh_features(target_down, voxel_size)
-    return source_pcd, target_pcd, source_down, target_down, source_fpfh, target_fpfh
-
+    
+    return source_pcd, target_pcd, source_down, target_down
 #PREPROCESSING POINT CLOUD OPERATIONS
 
+#GEOMETRY AND ADJACENCY CALCULATIONS
+#TODO calculate geometric overlap between pcds, decide if its sufficient for global reg
+#GEOMETRY AND ADJACENCY CALCULATIONS
+
 #REGISTRATION POINT CLOUD OPERATIONS
-def execute_global_reg(source_down, target_down, source_fpfh,
-                                target_fpfh, voxel_size: float):
+def execute_global_reg(source_pcd, target_pcd, voxel_size: float):
     distance_threshold = voxel_size * 1.5
+    source_fpfh = get_fpfh_features(source_pcd, voxel_size)
+    target_fpfh = get_fpfh_features(target_pcd, voxel_size)
+
     print(":: RANSAC registration on downsampled point clouds.")
-    print("   Since the downsampling voxel size is %.3f," % VOXEL_SIZE)
+    print("   Since the downsampling voxel size is %.3f," % voxel_size)
     print("   we use a liberal distance threshold %.3f." % distance_threshold)
-    result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        source_down, target_down, source_fpfh, target_fpfh, True,
+    result_ransac = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+        source_pcd, target_pcd, source_fpfh, target_fpfh, True,
         distance_threshold,
         o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
         3, [
@@ -103,19 +105,22 @@ def execute_global_reg(source_down, target_down, source_fpfh,
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
                 distance_threshold)
         ], o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999))
-    return result
+    
+    return result_ransac
 
-def execute_fast_global_reg(source_down, target_down, source_fpfh,
-                                     target_fpfh, voxel_size: float):
+def execute_fast_global_reg(source_down, target_down, voxel_size: float):
     distance_threshold = voxel_size * 0.5
+    source_fpfh = get_fpfh_features(source_down, voxel_size)
+    target_fpfh = get_fpfh_features(target_down, voxel_size)
+
     print(":: Apply fast global registration with distance threshold %.3f" \
             % distance_threshold)
-    result = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
+    result_fgr = o3d.pipelines.registration.registration_fgr_based_on_feature_matching(
         source_down, target_down, source_fpfh, target_fpfh,
         o3d.pipelines.registration.FastGlobalRegistrationOption(
             maximum_correspondence_distance=distance_threshold))
             
-    return result
+    return result_fgr
 
 def refine_registration(source_pcd, target_pcd, result_ransac, voxel_size: float):
     distance_threshold = voxel_size * 0.4
@@ -125,34 +130,40 @@ def refine_registration(source_pcd, target_pcd, result_ransac, voxel_size: float
     result = o3d.pipelines.registration.registration_icp(
         source_pcd, target_pcd, distance_threshold, result_ransac.transformation,
         o3d.pipelines.registration.TransformationEstimationPointToPlane())
+    
     return result
 #REGISTRATION POINT CLOUD OPERATIONS
 
 #MULTIWAY REGISTRATION
-
-def pairwise_registration(source, target,
+def pairwise_registration(source_pcd, target_pcd, voxel_size,
                           max_correspondence_distance_coarse,
                           max_correspondence_distance_fine):
+    
+    #intitial ransac globalisation of pairs
+    result_ransac = execute_global_reg(source_pcd, target_pcd,
+                                        voxel_size)
+    
+    #refinement with ICP on pairs
     print("Apply point-to-plane ICP on pcds")
-
     icp_coarse = o3d.pipelines.registration.registration_icp(
-        source, target, max_correspondence_distance_coarse, np.identity(4),
+        source_pcd, target_pcd, max_correspondence_distance_coarse, result_ransac.transformation,
         o3d.pipelines.registration.TransformationEstimationPointToPlane())
     icp_fine = o3d.pipelines.registration.registration_icp(
-        source, target, max_correspondence_distance_fine,
+        source_pcd, target_pcd, max_correspondence_distance_fine,
         icp_coarse.transformation,
         o3d.pipelines.registration.TransformationEstimationPointToPlane())
     transformation_icp = icp_fine.transformation
     information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
-        source, target, max_correspondence_distance_fine,
+        source_pcd, target_pcd, max_correspondence_distance_fine,
         icp_fine.transformation)
+    
     return transformation_icp, information_icp
 
 def get_pos_graph(pcds, voxel_size:float):
     pose_graph = o3d.pipelines.registration.PoseGraph()
     odometry = np.identity(4)
     pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
-    n_pcds = len(pcds)
+    number_of_pcds = len(pcds)
     max_correspondence_distance_coarse = voxel_size * 15
     max_correspondence_distance_fine = voxel_size * 1.5
 
@@ -160,11 +171,11 @@ def get_pos_graph(pcds, voxel_size:float):
         if len(pcd.normals) == 0:
             get_normals(pcd, voxel_size)
 
-    for source_id in range(n_pcds):
-        print(f"\n--- Processing cloud {source_id+1}/{n_pcds} ---")
-        for target_id in range(source_id + 1, n_pcds):
+    for source_id in range(number_of_pcds):
+        print(f"\n--- Processing cloud {source_id+1}/{number_of_pcds} ---")
+        for target_id in range(source_id + 1, number_of_pcds):
             transformation_icp, information_icp = pairwise_registration(
-                pcds[source_id], pcds[target_id],
+                pcds[source_id], pcds[target_id], voxel_size,
                 max_correspondence_distance_coarse,
                 max_correspondence_distance_fine)
             
@@ -230,7 +241,7 @@ def merge_and_save_ply(pcds, output_folder, voxel_size:float):
 #MERGE PLY
 
 #VIEWING OPERATIONS
-def view_data(pcds:list): #VOXEL_SIZE = 0.05 usually
+def view_data(pcds:list):
     try:
         o3d.visualization.draw_geometries(pcds,
                                         zoom=0.3412,
@@ -253,30 +264,25 @@ def draw_reg_result(source, target, transformation):
                                       up=[-0.2779, -0.9482, 0.1556])
     
 def view_fast_reg(voxel_size:float):
-    source_pcd, target_pcd, source_down, target_down, source_fpfh, target_fpfh = initialize_dataset(voxel_size)
+    _, _, source_down, target_down = initialize_pcd_dataset(voxel_size)
     
-    result_fast = execute_fast_global_reg(source_down, target_down,
-                                            source_fpfh, target_fpfh,
-                                            voxel_size)
+    result_fast = execute_fast_global_reg(source_down, target_down, voxel_size)
     print("Fast global registration took %.3f sec.\n" % (time.time() - start))
     print(result_fast)
     draw_reg_result(source_down, target_down, result_fast.transformation)
     
 def view_global_reg(voxel_size:float):
-    source_pcd, target_pcd, source_down, target_down, source_fpfh, target_fpfh = initialize_dataset(voxel_size)
+    _, _, source_down, target_down = initialize_pcd_dataset(voxel_size)
     
     result_ransac = execute_global_reg(source_down, target_down,
-                                        source_fpfh, target_fpfh,
                                         voxel_size)
     print("Global registration took %.3f sec.\n" % (time.time() - start))    
     draw_reg_result(source_down, target_down, result_ransac.transformation)
 
 def view_refined_global_reg(voxel_size:float):
-    source_pcd, target_pcd, source_down, target_down, source_fpfh, target_fpfh = initialize_dataset(voxel_size)
+    source_pcd, target_pcd, source_down, target_down = initialize_pcd_dataset(voxel_size)
     
-    result_ransac = execute_global_reg(source_down, target_down,
-                                        source_fpfh, target_fpfh,
-                                        voxel_size)
+    result_ransac = execute_global_reg(source_down, target_down, voxel_size)
     print("Global registration took %.3f sec.\n" % (time.time() - start))
     
     result_icp = refine_registration(source_pcd, target_pcd, result_ransac, voxel_size)
@@ -284,25 +290,21 @@ def view_refined_global_reg(voxel_size:float):
     
     draw_reg_result(source_down, target_down, result_icp.transformation)
 
-def view_multiway_registration():
-    voxel_size = 0.02
-
+def view_multiway_registration(voxel_size:float):   #TODO: work on reg logic
     pcds_down = get_pcds_down(voxel_size)
-    pcds_aligned, optimized_pos_graph = get_optimized_pos_graph(pcds_down, voxel_size)
+    pcds_aligned, _ = get_optimized_pos_graph(pcds_down, voxel_size)
     merge_and_save_ply(pcds_aligned, PLY_DATA_FOLDER, voxel_size)
 
     view_data(pcds_aligned)
-
 #VIEWING OPERATIONS
     
-
 if __name__ == "__main__":
     #START TIMER
     start = time.time()
     #START TIMER
     
-    #view_refined_global_reg()
-    view_multiway_registration()
+    #view_refined_global_reg(voxel_size=0.05)
+    view_multiway_registration(voxel_size=0.05)
 
     #END TIMER
     end = time.time()
